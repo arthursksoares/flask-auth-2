@@ -4,5 +4,8 @@
 <div class="protected-container">
     <h2>Bem-vindo, {{ username }}!</h2>
     <p>Você está autenticado com sucesso!</p>
+    <form action="{{ url_for('logout') }}" method="POST">
+        <button type="submit">Logout</button>
+    </form>
 </div>
 {% endblock %}
