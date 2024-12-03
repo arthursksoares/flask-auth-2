@@ -72,6 +72,21 @@ def index():
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+        # Verifica se o usuário já está logado
+    token = request.cookies.get('access_token')
+    if token:
+        try:
+            # Decodifica o token para verificar se é válido
+            decoded_token = decode_token(token)
+            identity = decoded_token["sub"]
+            user = User.query.get(identity)
+            
+            if user:
+                # Se o usuário estiver autenticado, redireciona para a página protegida
+                return redirect(url_for('protected'))
+        except Exception as e:
+            pass  # Se houver um erro no token, deixamos o fluxo continuar e exibir a página de registro
+
     if request.method == 'POST':
         try:
             # Converte os dados do formulário para dicionário
@@ -106,20 +121,37 @@ def register():
 
     return render_template('register.html')
 
+from flask import redirect, url_for
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    # Verifica se o usuário já está logado
+    token = request.cookies.get('access_token')
+    if token:
+        try:
+            # Decodifica o token para verificar se é válido
+            decoded_token = decode_token(token)
+            identity = decoded_token["sub"]
+            user = User.query.get(identity)
+            
+            if user:
+                # Se o usuário estiver autenticado, redireciona para a página protegida
+                return redirect(url_for('protected'))
+        except Exception as e:
+            pass  # Se houver um erro no token, deixamos o fluxo continuar e exibir o login
+
     if request.method == 'POST':
         try:
             data = request.form
             user = User.query.filter_by(username=data.get('username')).first()
             
             if user and bcrypt.check_password_hash(user.password_hash, data.get('password')):
-                # Cria o token de acesso
-                access_token = create_access_token(identity=user.id)
+                # Cria o token de acesso com o ID do usuário como 'sub'
+                access_token = create_access_token(identity=str(user.id))  # Garantindo que 'sub' seja uma string
                 
-                # Create a response object
-                response = make_response(render_template('protected.html', username=user.username, token=access_token))
-                response.set_cookie('access_token', access_token)  # Armazenar o token no cookie
+                # Cria a resposta e armazena o token no cookie
+                response = make_response(redirect(url_for('protected')))  # Redireciona para a página protegida
+                response.set_cookie('access_token', access_token)  # Armazena o token no cookie
                 return response
             
             return render_template('login.html', msg="Credenciais inválidas")
@@ -181,19 +213,53 @@ def reset_password():
     
     return render_template('reset_password.html', token=token)  # Token enviado para o formulário
 
-@app.route('/protected', methods=['GET'])
-@jwt_required()
-def protected():
-    current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
-    return render_template('protected.html', username=user.username)
+from flask_jwt_extended import decode_token
 
-# Rota de Logout
+@app.route('/protected', methods=['GET'])
+def protected():
+    # Recupera o token do cookie
+    token = request.cookies.get('access_token')
+
+    if not token:
+        # Redireciona para a tela de login se o token não estiver presente
+        return redirect(url_for('login'))
+
+    try:
+        # Decodifica o token usando a função correta
+        decoded_token = decode_token(token)
+        identity = decoded_token["sub"]  # Extrai o ID do usuário
+        user = User.query.get(identity)
+        
+        if not user:
+            return jsonify({"msg": "Invalid Token"}), 401
+
+        return render_template('protected.html', username=user.username)
+
+    except Exception as e:
+        return jsonify({"msg": "Token validation failed", "error": str(e)}), 401
+
 @app.route('/logout', methods=['POST'])
 def logout():
+    token = request.cookies.get('access_token')
+
+    if not token:
+        # Se não estiver logado, redireciona para a tela de login
+        return redirect(url_for('login'))
+
+    # Se estiver logado, realiza o logout
     response = redirect(url_for('login'))
-    response.delete_cookie('access_token')  # Remove o cookie do token
+    response.delete_cookie('access_token')
     return response
+
+@app.route('/logout', methods=['GET'])
+def logout_get():
+    # Caso tente acessar via GET, redireciona para o login ou página de erro
+    return redirect(url_for('login'))  # ou retornar uma página de erro personalizada
+
+# Tratamento de erro 404
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template('404.html'), 404
 
 # Configuração para criar tabelas
 with app.app_context():
